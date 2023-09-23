@@ -18,13 +18,8 @@ func die(err error){
     os.Exit(1)
 }
 
-func termRestore(oldStateIn *term.State, oldStateOut *term.State)  {
-    err := term.Restore(int(os.Stdin.Fd()), oldStateIn) 
-    if err != nil {
-        die(err)
-    }
-
-    err = term.Restore(int(os.Stdout.Fd()), oldStateOut) 
+func termRestore(oldState *term.State)  {
+    err := term.Restore(int(os.Stdin.Fd()), oldState) 
     if err != nil {
         die(err)
     }
@@ -60,12 +55,7 @@ func editorProcessKeypress() {
 }
 
 func main() {
-    oldStateIn, err := term.GetState(int(os.Stdin.Fd()))
-	if err != nil {
-		die(err)
-	}
-
-    oldStateOut, err := term.GetState(int(os.Stdout.Fd()))
+    oldState, err := term.GetState(int(os.Stdin.Fd()))
 	if err != nil {
 		die(err)
 	}
@@ -74,7 +64,7 @@ func main() {
 	if err != nil {
 		die(err)
 	}
-	defer termRestore(oldStateIn, oldStateOut)
+	defer termRestore(oldState)
 
 	for {
 		editorRefresh()
