@@ -1,75 +1,74 @@
 package main
 
 import (
+	"fmt"
 	"os"
-	"strconv"
 
-	"github.com/gdamore/tcell/v2"
+	"golang.org/x/term"
 )
 
-type Config struct {
+type config struct {
     rows int
     cols int
+    oldState *term.State
 }
 
-var config Config
+var conf config
 
-func drawRows()  {
-    for i:=0 ; i < config.rows; i++ {
-        s := strconv.Itoa(i)
-        os.Stdout.WriteString(s+"\r\n")
+func runOnExit(){
+    err := term.Restore(int(os.Stdin.Fd()), conf.oldState)
+    if err != nil {
+        fmt.Println("Still Stuck")
     }
+    os.Exit(0)
 }
 
-func refreshScreen()  {
-    os.Stdout.WriteString("\x1b[H")
-
-    drawRows()
-
-    os.Stdout.WriteString("\x1b[H")
+func ctrlkey(ch byte) byte {
+    return ch&0x1f
 }
 
-func readKey(ev *tcell.EventKey)  {
-    key := ev.Key()
-    if key == tcell.KeyCtrlQ {
-        os.Exit(0)
+func getSize()  {
+    r, c, err := term.GetSize(int(os.Stdin.Fd()))
+    if err != nil{
+        panic(err)
     }
+    conf.rows, conf.cols = r, c
 }
 
-func handleEvents(screen tcell.Screen)  {
-    ev := screen.PollEvent()
-    switch ev:= ev.(type) {
-
-
-    case *tcell.EventKey:
-        readKey(ev)
-    }
-}
-
-func configUpdate(screen tcell.Screen)  {
-    config.rows, config.cols = screen.Size()
-}
-
-func main() {
-    // Create a new screen object
-    screen, err := tcell.NewScreen()
+func editorRefreshScreen(){
+    _, err := os.Stdout.WriteString("\x1b[2J")
     if err != nil {
         panic(err)
     }
 
-    // Initialize the screen
-    if err := screen.Init(); err != nil {
+    _, err = os.Stdout.WriteString("\x1b[H")
+    if err != nil {
         panic(err)
     }
-    defer screen.Fini()
+    
+}
 
+func editorReadKey()  {
+    var buf [1]byte
+    _, err := os.Stdin.Read(buf[:])
+    if err != nil {
+        panic(err)
+    }
 
+    if(buf[0] == ctrlkey('q')){
+        runOnExit()
+    }
+}
 
-    // Wait for events
+func main()  {
+    temp, err := term.MakeRaw(int(os.Stdin.Fd()))
+    if err != nil {
+        panic(err)
+    }
+    conf.oldState = temp
+
     for {
-        configUpdate(screen)
-        screen.Clear()
-        refreshScreen()
-        handleEvents(screen)
+        editorRefreshScreen()
+        editorReadKey()
     }
 }
