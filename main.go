@@ -1,11 +1,16 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"strings"
+
 	"golang.org/x/term"
 )
 
 type config struct {
+    cx int
+    cy int
     rows int
     cols int
     oldState *term.State
@@ -54,20 +59,39 @@ func getSize()  {
     conf.rows, conf.cols = rows, cols
 }
 
+func initEditor() {
+    conf.cx, conf.cy = 0, 0
+    getSize()
+}
+
 func editorDrawRows(ab *abuf)  {
     for i := 0; i < conf.rows; i++ {
+        abAppend(ab, "~", 1)
         if i == conf.rows / 3 {
             welcome := "Welcome to GoTed version --- 1.0"
             welcomLen := len(welcome)
+            padding := strings.Repeat(" ", (conf.cols - welcomLen)/2)
+            abAppend(ab, padding, (conf.cols - welcomLen)/2)
             abAppend(ab, welcome, welcomLen)
-        } else {
-            abAppend(ab, "~", 1)
         }
 
         abAppend(ab, "\x1b[K", 3)
         if i < conf.rows -1 {
             abAppend(ab, "\r\n", 2)
         }
+    }
+}
+
+func editorMoveCursor(key byte)  {
+    switch key {
+    case 'h':
+        conf.cx--
+    case 'j':
+        conf.cy--
+    case 'k':
+        conf.cy++
+    case 'l':
+        conf.cx--
     }
 }
 
@@ -78,7 +102,9 @@ func editorRefreshScreen(){
 
     editorDrawRows(&ab)
 
-    abAppend(&ab, "\x1b[H", 4)
+    buf := fmt.Sprintf("\x1b[%d;%dH", conf.cx+1, conf.cy+1)
+    abAppend(&ab, buf, len(buf))
+
     abAppend(&ab, "\x1b[?25h", 6)
     _, err := os.Stdout.WriteString(ab.b)
     checkErr(err)
@@ -96,7 +122,17 @@ func editorProcessKeys() {
     ch := editorReadKey()
     switch ch {
     case ctrlkey('q'):
-    runOnExit()
+        runOnExit()
+
+
+    case 'h':
+        fallthrough
+    case 'j':
+        fallthrough
+    case 'k':
+        fallthrough
+    case 'l':
+        editorMoveCursor(ch)
     }
 }
 
@@ -105,6 +141,8 @@ func main()  {
     checkErr(err)
 
     conf.oldState = temp
+
+    initEditor()
 
     for {
         getSize()
