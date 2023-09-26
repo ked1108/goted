@@ -24,6 +24,18 @@ type abuf struct {
 var conf config
 var ABUF_INIT abuf = abuf{"", 0}
 
+const (
+    ARROW_LEFT int = iota + 1000
+    ARROW_RIGHT     
+    ARROW_UP        
+    ARROW_DOWN      
+    DEL_KEY
+    HOME_KEY
+    END_KEY
+    PAGE_UP
+    PAGE_DOWN
+)
+
 func checkErr(err error){
     if err != nil {
         panic(err)
@@ -43,8 +55,8 @@ func runOnExit(){
     os.Exit(0)
 }
 
-func ctrlkey(ch byte) byte {
-    return ch&0x1f
+func ctrlkey(ch byte) int {
+    return int(ch&0x1f)
 }
 
 func abAppend(ab *abuf, s string, l int)  {
@@ -82,16 +94,24 @@ func editorDrawRows(ab *abuf)  {
     }
 }
 
-func editorMoveCursor(key byte)  {
+func editorMoveCursor(key int)  {
     switch key {
-    case 'h':
-        conf.cx--
-    case 'j':
-        conf.cy--
-    case 'k':
-        conf.cy++
-    case 'l':
-        conf.cx--
+    case ARROW_LEFT:
+        if conf.cx > 0{
+            conf.cx--
+        }
+    case ARROW_UP:
+        if conf.cy > 0 {
+            conf.cy--
+        }
+    case ARROW_DOWN:
+        if conf.cy < conf.rows -1 {
+            conf.cy++
+        }
+    case ARROW_RIGHT:
+        if conf.cx < conf.cols -1{
+            conf.cx++
+        } 
     }
 }
 
@@ -102,7 +122,7 @@ func editorRefreshScreen(){
 
     editorDrawRows(&ab)
 
-    buf := fmt.Sprintf("\x1b[%d;%dH", conf.cx+1, conf.cy+1)
+    buf := fmt.Sprintf("\x1b[%d;%dH", conf.cy+1, conf.cx+1)
     abAppend(&ab, buf, len(buf))
 
     abAppend(&ab, "\x1b[?25h", 6)
@@ -110,28 +130,113 @@ func editorRefreshScreen(){
     checkErr(err)
 }
 
-func editorReadKey() byte {
+func editorReadKey() int {
     var buf [1]byte
     _, err := os.Stdin.Read(buf[:])
     checkErr(err)
+    char := buf[0]
+    if char == '\x1b'{
+        var buf [3]byte
+        s, err := os.Stdin.Read(buf[0:1])
+        checkErr(err)
+        if s != 1 {
+            return '\x1b'
+        }
 
-    return buf[0]
+        s, err = os.Stdin.Read(buf[1:2])
+        checkErr(err)
+        if s != 1 {
+            return '\x1b'
+        }
+
+        if buf[0] == '[' {
+            if buf[1] >= '0' && buf[1] <= '9' {
+                s, err = os.Stdin.Read(buf[2:]) 
+                checkErr(err)
+                if s != 1 {
+                    return '\x1b'
+                } 
+                if buf[2] == '~' {
+                    switch buf[1] {
+                    case '1':
+                        return HOME_KEY
+                    case '3':
+                        return DEL_KEY
+                    case '4':
+                        return END_KEY
+                    case '5':
+                        return PAGE_UP
+                    case '6':
+                        return PAGE_DOWN
+                    case '7':
+                        return HOME_KEY
+                    case '8':
+                        return END_KEY
+                    }
+                }
+            } else {
+                switch buf[1] {
+                    case 'A':
+                        return ARROW_UP
+                    case 'B':
+                        return ARROW_DOWN
+                    case 'C':
+                        return ARROW_RIGHT
+                    case 'D':
+                        return ARROW_LEFT
+                    case 'H':
+                        return HOME_KEY
+                    case 'F':
+                        return END_KEY
+                }
+            }
+        } else if buf[0] == 'O' {
+            switch buf[1] {
+            case 'H':
+                return HOME_KEY
+            case 'F':
+                return END_KEY
+            }
+        } else {
+            return '\x1b'
+        }
+
+    } 
+    return int(char)
 }
 
 func editorProcessKeys() {
-    ch := editorReadKey()
+    ch := int(editorReadKey())
     switch ch {
     case ctrlkey('q'):
         runOnExit()
 
+    case HOME_KEY:
+        conf.cx = 0
 
-    case 'h':
+    case END_KEY:
+        conf.cx = conf.cols - 1
+
+    case PAGE_UP:
+        reps := conf.cy
+        for i := 0; i < reps; i++ {
+            editorMoveCursor(ARROW_UP)
+        } 
+
+    case PAGE_DOWN:
+        reps := conf.rows - conf.cy
+        for i := 0; i < reps; i++ {
+            editorMoveCursor(ARROW_DOWN)
+        } 
+        
+
+    case ARROW_LEFT:
         fallthrough
-    case 'j':
+    case ARROW_UP:
         fallthrough
-    case 'k':
+    case ARROW_DOWN:
         fallthrough
-    case 'l':
+    case ARROW_RIGHT:
         editorMoveCursor(ch)
     }
 }
