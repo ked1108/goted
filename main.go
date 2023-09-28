@@ -9,8 +9,10 @@ import (
 )
 
 type erow struct {
-	size int
-	buf  string
+	size   int
+	rsize  int
+	buf    string
+	render string
 }
 
 type abuf struct {
@@ -22,6 +24,7 @@ type config struct {
 	cx       int
 	cy       int
 	rowoff   int
+	coloff   int
 	rows     int
 	cols     int
 	numrows  int
@@ -30,7 +33,9 @@ type config struct {
 }
 
 var conf config
-var ABUF_INIT abuf = abuf{"", 0}
+
+//goland:noinspection GoSnakeCaseUsage
+var ABUF_INIT = abuf{"", 0}
 
 //goland:noinspection ALL
 const (
@@ -47,7 +52,9 @@ const (
 
 func checkErr(err error) {
 	if err != nil {
-		panic(err)
+		_ = term.Restore(int(os.Stdin.Fd()), conf.oldState)
+		fmt.Println(err)
+		os.Exit(1)
 	}
 }
 
@@ -89,7 +96,7 @@ func initEditor() {
 }
 
 func editorAppendRow(line string, lineLen int) {
-	conf.row = append(conf.row, erow{lineLen, line})
+	conf.row = append(conf.row, erow{lineLen, 0, line, ""})
 	conf.numrows++
 }
 
@@ -106,6 +113,17 @@ func editorOpen(filename string) {
 	checkErr(err)
 	err = file.Close()
 	checkErr(err)
+}
+
+func editorUpdateRows(row *erow) {
+	buf := make([]byte, row.size)
+	idx := 0
+	for _, char := range row.buf {
+		buf[idx] = byte(char)
+		idx++
+	}
+	row.render = string(buf)
+	row.rsize = len(row.render)
 }
 
 func editorDrawRows(ab *abuf) {
@@ -128,12 +146,15 @@ func editorDrawRows(ab *abuf) {
 				abAppend(ab, "\r\n", 2)
 			}
 		} else {
-			l := conf.row[filerow].size
+			l := conf.row[filerow].size - conf.coloff
+			if l < 0 {
+				l = 0
+			}
 			if l > conf.cols {
 				l = conf.cols
 			}
 			abAppend(ab, "\x1b[K", 3)
-			abAppend(ab, conf.row[filerow].buf, l)
+			abAppend(ab, conf.row[filerow].buf[conf.coloff:], l)
 			if j < conf.rows-1 {
 				abAppend(ab, "\r\n", 2)
 			}
@@ -143,6 +164,12 @@ func editorDrawRows(ab *abuf) {
 }
 
 func editorMoveCursor(key int) {
+	var row *erow
+	if conf.cy >= conf.numrows {
+		row = nil
+	} else {
+		row = &conf.row[conf.cy]
+	}
 	switch key {
 	case ARROW_LEFT:
 		if conf.cx > 0 {
@@ -157,9 +184,23 @@ func editorMoveCursor(key int) {
 			conf.cy++
 		}
 	case ARROW_RIGHT:
-		if conf.cx < conf.cols-1 {
+		if row != nil && conf.cx < row.size {
 			conf.cx++
 		}
+	}
+	if conf.cy > conf.numrows {
+		row = nil
+	} else {
+		row = &conf.row[conf.cy]
+	}
+	var rowlen int
+	if row != nil {
+		rowlen = row.size
+	} else {
+		rowlen = 0
+	}
+	if conf.cx > rowlen {
+		conf.cx = rowlen
 	}
 }
 
@@ -169,6 +210,12 @@ func editorScroll() {
 	}
 	if conf.cy >= conf.rowoff+conf.rows {
 		conf.rowoff = conf.cy - conf.rows + 1
+	}
+	if conf.cx < conf.coloff {
+		conf.coloff = conf.cx
+	}
+	if conf.cx >= conf.coloff+conf.cols {
+		conf.coloff = conf.cx - conf.cols + 1
 	}
 }
 
@@ -180,7 +227,7 @@ func editorRefreshScreen() {
 
 	editorDrawRows(&ab)
 
-	buf := fmt.Sprintf("\x1b[%d;%dH", (conf.cy-conf.rowoff)+1, conf.cx+1)
+	buf := fmt.Sprintf("\x1b[%d;%dH", (conf.cy-conf.rowoff)+1, (conf.cx-conf.coloff)+1)
 	abAppend(&ab, buf, len(buf))
 
 	abAppend(&ab, "\x1b[?25h", 6)
@@ -264,7 +311,7 @@ func editorReadKey() int {
 }
 
 func editorProcessKeys() {
-	ch := int(editorReadKey())
+	ch := editorReadKey()
 	switch ch {
 	case ctrlkey('q'):
 		runOnExit()
