@@ -23,6 +23,7 @@ type abuf struct {
 type config struct {
 	cx       int
 	cy       int
+	rx       int
 	rowoff   int
 	coloff   int
 	rows     int
@@ -36,6 +37,8 @@ var conf config
 
 //goland:noinspection GoSnakeCaseUsage
 var ABUF_INIT = abuf{"", 0}
+
+const TAB_WIDTH = 8
 
 //goland:noinspection ALL
 const (
@@ -97,6 +100,9 @@ func initEditor() {
 
 func editorAppendRow(line string, lineLen int) {
 	conf.row = append(conf.row, erow{lineLen, 0, line, ""})
+	conf.row[conf.numrows].rsize = 0
+	conf.row[conf.numrows].render = ""
+	editorUpdateRows(&conf.row[conf.numrows])
 	conf.numrows++
 }
 
@@ -115,12 +121,39 @@ func editorOpen(filename string) {
 	checkErr(err)
 }
 
+func editorRowCxtoRx(row *erow, cx int) int {
+	rx := 0
+	for i := 0; i < cx; i++ {
+		if row.buf[i] == '\t' {
+			rx += (TAB_WIDTH - 1) - (rx % TAB_WIDTH)
+		}
+		rx++
+	}
+
+	return rx
+}
+
 func editorUpdateRows(row *erow) {
-	buf := make([]byte, row.size)
+	tabs := 0
+	for char := range row.buf {
+		if char == '\t' {
+			tabs++
+		}
+	}
+	var buf []byte
 	idx := 0
 	for _, char := range row.buf {
-		buf[idx] = byte(char)
-		idx++
+		if char == '\t' {
+			buf = append(buf, ' ')
+			idx++
+			for idx%TAB_WIDTH != 0 {
+				buf = append(buf, ' ')
+				idx++
+			}
+		} else {
+			buf = append(buf, byte(char))
+			idx++
+		}
 	}
 	row.render = string(buf)
 	row.rsize = len(row.render)
@@ -205,17 +238,23 @@ func editorMoveCursor(key int) {
 }
 
 func editorScroll() {
+	conf.rx = conf.cx
+
+	if conf.cy < conf.numrows {
+		conf.rx = editorRowCxtoRx(&conf.row[conf.cy], conf.cx)
+	}
+
 	if conf.cy < conf.rowoff {
 		conf.rowoff = conf.cy
 	}
 	if conf.cy >= conf.rowoff+conf.rows {
 		conf.rowoff = conf.cy - conf.rows + 1
 	}
-	if conf.cx < conf.coloff {
-		conf.coloff = conf.cx
+	if conf.rx < conf.coloff {
+		conf.coloff = conf.rx
 	}
-	if conf.cx >= conf.coloff+conf.cols {
-		conf.coloff = conf.cx - conf.cols + 1
+	if conf.rx >= conf.coloff+conf.cols {
+		conf.coloff = conf.rx - conf.cols + 1
 	}
 }
 
@@ -227,7 +266,7 @@ func editorRefreshScreen() {
 
 	editorDrawRows(&ab)
 
-	buf := fmt.Sprintf("\x1b[%d;%dH", (conf.cy-conf.rowoff)+1, (conf.cx-conf.coloff)+1)
+	buf := fmt.Sprintf("\x1b[%d;%dH", (conf.cy-conf.rowoff)+1, (conf.rx-conf.coloff)+1)
 	abAppend(&ab, buf, len(buf))
 
 	abAppend(&ab, "\x1b[?25h", 6)
