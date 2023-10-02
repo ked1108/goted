@@ -30,6 +30,7 @@ type config struct {
 	cols     int
 	numrows  int
 	row      []erow
+	filename string
 	oldState *term.State
 }
 
@@ -95,7 +96,10 @@ func initEditor() {
 	conf.rowoff = 0
 	conf.numrows = 0
 	conf.row = nil
+	conf.filename = ""
 	getSize()
+
+	conf.rows -= 1
 }
 
 func editorAppendRow(line string, lineLen int) {
@@ -107,6 +111,7 @@ func editorAppendRow(line string, lineLen int) {
 }
 
 func editorOpen(filename string) {
+	conf.filename = filename
 	file, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE, 0755)
 	checkErr(err)
 	scanner := bufio.NewScanner(file)
@@ -131,6 +136,23 @@ func editorRowCxtoRx(row *erow, cx int) int {
 	}
 
 	return rx
+}
+
+func editorDrawStatusBar(ab *abuf) {
+	abAppend(ab, "\x1b[7m", 4)
+	status := ""
+	if conf.filename == "" {
+		status = fmt.Sprintf("%.20s - %d lines", "[No Name]", conf.numrows)
+	} else {
+		status = fmt.Sprintf("%.20s - %d lines", conf.filename, conf.numrows)
+	}
+	length := len(status)
+	abAppend(ab, status, len(status))
+	for length < conf.cols {
+		abAppend(ab, " ", 1)
+		length++
+	}
+	abAppend(ab, "\x1b[m", 3)
 }
 
 func editorUpdateRows(row *erow) {
@@ -175,9 +197,7 @@ func editorDrawRows(ab *abuf) {
 			}
 
 			abAppend(ab, "\x1b[K", 3)
-			if j < conf.rows-1 {
-				abAppend(ab, "\r\n", 2)
-			}
+			abAppend(ab, "\r\n", 2)
 		} else {
 			l := conf.row[filerow].size - conf.coloff
 			if l < 0 {
@@ -188,9 +208,7 @@ func editorDrawRows(ab *abuf) {
 			}
 			abAppend(ab, "\x1b[K", 3)
 			abAppend(ab, conf.row[filerow].buf[conf.coloff:], l)
-			if j < conf.rows-1 {
-				abAppend(ab, "\r\n", 2)
-			}
+			abAppend(ab, "\r\n", 2)
 		}
 
 	}
@@ -265,6 +283,7 @@ func editorRefreshScreen() {
 	abAppend(&ab, "\x1b[H", 4)
 
 	editorDrawRows(&ab)
+	editorDrawStatusBar(&ab)
 
 	buf := fmt.Sprintf("\x1b[%d;%dH", (conf.cy-conf.rowoff)+1, (conf.rx-conf.coloff)+1)
 	abAppend(&ab, buf, len(buf))
@@ -359,18 +378,29 @@ func editorProcessKeys() {
 		conf.cx = 0
 
 	case END_KEY:
-		conf.cx = conf.cols - 1
-
-	case PAGE_UP:
-		reps := conf.cy
-		for i := 0; i < reps; i++ {
-			editorMoveCursor(ARROW_UP)
+		if conf.cy < conf.numrows {
+			conf.cx = conf.row[conf.cy].size
 		}
 
+	case PAGE_UP:
+		fallthrough
 	case PAGE_DOWN:
-		reps := conf.rows - conf.cy
-		for i := 0; i < reps; i++ {
-			editorMoveCursor(ARROW_DOWN)
+		if ch == PAGE_UP {
+			conf.cy = conf.rowoff
+		} else if ch == PAGE_DOWN {
+			conf.cy = conf.rowoff + conf.rows - 1
+			if conf.cy > conf.numrows {
+				conf.cy = conf.numrows
+			}
+		}
+
+		times := conf.rows
+		for i := 0; i < times; i++ {
+			if ch == PAGE_UP {
+				editorMoveCursor(ARROW_UP)
+			} else {
+				editorMoveCursor(ARROW_DOWN)
+			}
 		}
 
 	case ARROW_LEFT:
