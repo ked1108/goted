@@ -80,7 +80,11 @@ func ctrlkey(ch byte) int {
 }
 
 func abAppend(ab *abuf, s string, l int) {
-	ab.b = ab.b + s
+	if l == len(s) {
+		ab.b = ab.b + s
+	} else {
+		ab.b = ab.b + s[:l-1]
+	}
 	ab.l = ab.l + l
 }
 
@@ -141,16 +145,27 @@ func editorRowCxtoRx(row *erow, cx int) int {
 func editorDrawStatusBar(ab *abuf) {
 	abAppend(ab, "\x1b[7m", 4)
 	status := ""
+	rstatus := ""
+	var length int
 	if conf.filename == "" {
 		status = fmt.Sprintf("%.20s - %d lines", "[No Name]", conf.numrows)
 	} else {
 		status = fmt.Sprintf("%.20s - %d lines", conf.filename, conf.numrows)
 	}
-	length := len(status)
-	abAppend(ab, status, len(status))
+	rstatus = fmt.Sprintf("%d/%d", conf.cy+1, conf.numrows)
+	if len(status) > conf.cols {
+		length = conf.cols
+	}
+	length = len(status)
+	abAppend(ab, status, length)
 	for length < conf.cols {
-		abAppend(ab, " ", 1)
-		length++
+		if (conf.cols - length) == len(rstatus) {
+			abAppend(ab, rstatus, len(rstatus))
+			break
+		} else {
+			abAppend(ab, " ", 1)
+			length++
+		}
 	}
 	abAppend(ab, "\x1b[m", 3)
 }
@@ -239,7 +254,7 @@ func editorMoveCursor(key int) {
 			conf.cx++
 		}
 	}
-	if conf.cy > conf.numrows {
+	if conf.cy >= conf.numrows {
 		row = nil
 	} else {
 		row = &conf.row[conf.cy]
@@ -277,6 +292,7 @@ func editorScroll() {
 }
 
 func editorRefreshScreen() {
+	getSize()
 	editorScroll()
 	ab := ABUF_INIT
 	abAppend(&ab, "\x1b[?25l", 6)
